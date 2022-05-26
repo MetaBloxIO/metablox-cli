@@ -1,7 +1,14 @@
-package metablox_cli
+package main
 
 import (
+	"crypto/ecdsa"
+	"encoding/json"
+	"flag"
 	"fmt"
+	"github.com/MetaBloxIO/metablox-foundation-services/did"
+	"github.com/ethereum/go-ethereum/crypto"
+	log "github.com/sirupsen/logrus"
+	"github.com/syndtr/goleveldb/leveldb"
 	"os"
 )
 
@@ -170,8 +177,41 @@ func printUsage() {
 	fmt.Println("Note: Use the command 'cli help' to get the command usage in details")
 }
 
+type AppContext struct {
+	db *leveldb.DB
+}
+
+var GlobalContext AppContext
+
 func createDIDHandler(args []string) {
 
+	keyPtr := flag.String("key", "", "Private key in hex")
+	namePtr := flag.String("name", "", "DID Name")
+
+	flag.Parse()
+
+	if namePtr == nil || len(*namePtr) == 0 {
+		log.Error("Create DID must have a name")
+		return
+	}
+
+	var privKey *ecdsa.PrivateKey
+	if keyPtr != nil && len(*keyPtr) > 0 {
+		privKeyLoad, err := crypto.HexToECDSA(*keyPtr)
+		if err != nil {
+			log.Error("Import private key failed")
+			return
+		}
+		privKey = privKeyLoad
+	} else {
+		privKey, _ = crypto.GenerateKey()
+	}
+
+	didDoc := did.CreateDID(privKey)
+
+	didDocStr, _ := json.Marshal(didDoc)
+
+	GlobalContext.db.Put([]byte("did"+*namePtr), didDocStr, nil)
 }
 
 func listDIDsHandler(args []string) {
@@ -224,6 +264,17 @@ func main() {
 		printUsage()
 		return
 	}
+
+	db, err := leveldb.OpenFile("./db", nil)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+			"path":  "./db",
+		}).Error("Open database failed")
+		return
+	}
+
+	GlobalContext = AppContext{db: db}
 
 	cmdHandle(args[1:])
 }
