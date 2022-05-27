@@ -2,32 +2,38 @@ package main
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/MetaBloxIO/metablox-foundation-services/contract"
+	"github.com/MetaBloxIO/metablox-foundation-services/credentials"
 	"github.com/MetaBloxIO/metablox-foundation-services/did"
+	"github.com/MetaBloxIO/metablox-foundation-services/key"
 	"github.com/MetaBloxIO/metablox-foundation-services/models"
+	"github.com/MetaBloxIO/metablox-foundation-services/presentations"
 	"github.com/ethereum/go-ethereum/crypto"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"os"
+	"strconv"
 	"strings"
 )
 
 const (
-	cliCreateDID    = "createDID"
-	cliListDIDs     = "listDIDs"
-	cliPrintDID     = "printDID"
-	cliRegisterDID  = "registerDID"
-	cliResolveDID   = "resolveDID"
-	cliCreateWiFiVC = "createWiFiVC"
-	cliVerifyVC     = "verifyVC"
-	cliCreateVP     = "createVP"
-	cliVerifyVP     = "verifyVP"
-	cliHelp         = "help"
+	cliCreateDID      = "createDID"
+	cliListDIDs       = "listDIDs"
+	cliPrintDID       = "printDID"
+	cliRegisterDID    = "registerDID"
+	cliResolveDID     = "resolveDID"
+	cliCreateWiFiVC   = "createWiFiVC"
+	cliCreateMiningVC = "createMiningVC"
+	cliVerifyVC       = "verifyVC"
+	cliCreateVP       = "createVP"
+	cliVerifyVP       = "verifyVP"
+	cliHelp           = "help"
 )
 
 type valueType int
@@ -41,6 +47,8 @@ const (
 	boolType
 	valueTypeUint64
 )
+
+const baseIDString = "http://metablox.com/credentials/"
 
 type flagPars struct {
 	name         string
@@ -57,6 +65,7 @@ var cmdList = []string{
 	cliRegisterDID,
 	cliResolveDID,
 	cliCreateWiFiVC,
+	cliCreateMiningVC,
 	cliVerifyVC,
 	cliCreateVP,
 	cliVerifyVP,
@@ -64,16 +73,17 @@ var cmdList = []string{
 }
 
 var cmdHandleMap = map[string]commandHandler{
-	cliCreateDID:    createDIDHandler,
-	cliListDIDs:     listDIDsHandler,
-	cliPrintDID:     printDIDHandler,
-	cliRegisterDID:  registerDIDHandler,
-	cliResolveDID:   resolveDIDHandler,
-	cliCreateWiFiVC: createWiFiVCHandler,
-	cliVerifyVC:     verifyVCHandler,
-	cliCreateVP:     createVPHandler,
-	cliVerifyVP:     verifyVPHandler,
-	cliHelp:         helpHandler,
+	cliCreateDID:      createDIDHandler,
+	cliListDIDs:       listDIDsHandler,
+	cliPrintDID:       printDIDHandler,
+	cliRegisterDID:    registerDIDHandler,
+	cliResolveDID:     resolveDIDHandler,
+	cliCreateWiFiVC:   createWiFiVCHandler,
+	cliCreateMiningVC: createMiningVCHandler,
+	cliVerifyVC:       verifyVCHandler,
+	cliCreateVP:       createVPHandler,
+	cliVerifyVP:       verifyVPHandler,
+	cliHelp:           helpHandler,
 }
 
 var cmdFlagsMap = map[string][]flagPars{
@@ -140,7 +150,40 @@ var cmdFlagsMap = map[string][]flagPars{
 			valueType:    valueTypeString,
 			usage:        "Credential Subjects",
 		},
+		flagPars{
+			name:         "id",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "Credential id",
+		},
 	},
+	cliCreateMiningVC: {
+		flagPars{
+			name:         "name",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "DID Name",
+		},
+		flagPars{
+			name:         "type",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "Credential Type",
+		},
+		flagPars{
+			name:         "subjects",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "Credential Subjects",
+		},
+		flagPars{
+			name:         "id",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "Credential id",
+		},
+	},
+
 	cliVerifyVC: {
 		flagPars{
 			name:         "vc",
@@ -161,6 +204,12 @@ var cmdFlagsMap = map[string][]flagPars{
 			defaultValue: "",
 			valueType:    valueTypeString,
 			usage:        "DID Name",
+		},
+		flagPars{
+			name:         "nonce",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "VP Nonce",
 		},
 	},
 	cliVerifyVP: {
@@ -328,10 +377,11 @@ func resolveDIDHandler(args []string) {
 }
 
 func createWiFiVCHandler(args []string) {
-	printArgsFlag := flag.NewFlagSet("createVC", flag.ExitOnError)
+	printArgsFlag := flag.NewFlagSet("createWiFiVC", flag.ExitOnError)
 	namePtr := printArgsFlag.String("name", "", "DID Name")
 	typePtr := printArgsFlag.String("type", "", "Credential Type")
 	subjectsPtr := printArgsFlag.String("subjects", "", "Credential Subjects")
+	idPtr := printArgsFlag.String("id", "", "Credential id")
 	printArgsFlag.Parse(args)
 
 	if namePtr == nil || len(*namePtr) == 0 {
@@ -349,18 +399,255 @@ func createWiFiVCHandler(args []string) {
 		return
 	}
 
+	if idPtr == nil || len(*idPtr) == 0 {
+		log.Error("Credential id must be specified")
+		return
+	}
+
+	var wifiSubject models.WifiAccessInfo
+
+	err := json.Unmarshal([]byte(*subjectsPtr), &wifiSubject)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Decode WifiAccess json error")
+		return
+	}
+
+	createVC(*namePtr, &wifiSubject, models.TypeWifi, *idPtr)
+}
+
+func createVC(name string, subject any, subType string, id string) {
+	didDocStr, err := GlobalContext.db.Get([]byte("did"+name), nil)
+	if err != nil {
+		log.Error("Read did document failed")
+		return
+	}
+
+	var didDoc models.DIDDocument
+	json.Unmarshal(didDocStr, &didDoc)
+
+	didKey, err := GlobalContext.db.Get([]byte("key"+name), nil)
+	if err != nil {
+		log.Error("Read did key failed")
+		return
+	}
+	privKey, err := crypto.ToECDSA(didKey)
+	if err != nil {
+		log.Error("Parse did key failed")
+		return
+	}
+
+	vc, err := credentials.CreateVC(&didDoc)
+	if err != nil {
+		log.Error("Create vc failed")
+		return
+	}
+
+	vc.Type = append(vc.Type, subType)
+	vc.SubType = subType
+	vc.Description = subType + "Credential"
+	vc.CredentialSubject = subject
+
+	//Upload VC to DB and generate ID. Has to be done before creating signature, as changing the ID will change the signature
+	err = credentials.ConvertTimesToDBFormat(vc)
+	if err != nil {
+		log.Error("Create vc failed")
+		return
+	}
+
+	vc.ID = baseIDString + id
+	hashedVC := sha256.Sum256(credentials.ConvertVCToBytes(*vc))
+
+	signatureData, err := key.CreateJWSSignature(privKey, hashedVC[:])
+	if err != nil {
+		log.Error("Signature vc failed")
+		return
+	}
+	vc.Proof.JWSSignature = signatureData
+
+	vcStr, _ := json.Marshal(vc)
+
+	fmt.Println("VC:")
+	fmt.Println(string(vcStr))
+}
+
+func createMiningVCHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("createMiningVC", flag.ExitOnError)
+	namePtr := printArgsFlag.String("name", "", "DID Name")
+	typePtr := printArgsFlag.String("type", "", "Credential Type")
+	subjectsPtr := printArgsFlag.String("subjects", "", "Credential Subjects")
+	idPtr := printArgsFlag.String("id", "", "Credential id")
+	printArgsFlag.Parse(args)
+
+	if namePtr == nil || len(*namePtr) == 0 {
+		log.Error("DID Name must be specified")
+		return
+	}
+
+	if typePtr == nil || len(*typePtr) == 0 {
+		log.Error("Credential Type must be specified")
+		return
+	}
+
+	if subjectsPtr == nil || len(*subjectsPtr) == 0 {
+		log.Error("Credential Subjects must be specified")
+		return
+	}
+
+	if idPtr == nil || len(*idPtr) == 0 {
+		log.Error("Credential id must be specified")
+		return
+	}
+
+	var miningSubject models.MiningLicenseInfo
+
+	err := json.Unmarshal([]byte(*subjectsPtr), &miningSubject)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Decode WifiAccess json error")
+		return
+	}
+
+	createVC(*namePtr, &miningSubject, models.TypeMining, *idPtr)
 }
 
 func verifyVCHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("verifyVC", flag.ExitOnError)
+	vcPtr := printArgsFlag.String("vc", "", "vc")
+	printArgsFlag.Parse(args)
 
+	if vcPtr == nil || len(*vcPtr) == 0 {
+		log.Error("VC must be specified")
+		return
+	}
+
+	var vcModel models.VerifiableCredential
+	err := json.Unmarshal([]byte(*vcPtr), &vcModel)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Decode VC json error")
+		return
+	}
+
+	//TODO Decode credential subject
+
+	ret, err := credentials.VerifyVC(&vcModel)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Verify VC json error")
+		return
+	}
+
+	fmt.Println("Verify vc" + strconv.FormatBool(ret))
 }
 
 func createVPHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("createVP", flag.ExitOnError)
+	namePtr := printArgsFlag.String("name", "", "DID Name")
+	vcPtr := printArgsFlag.String("vc", "", "vc")
+	noncePtr := printArgsFlag.String("nonce", "", "Nonce")
 
+	printArgsFlag.Parse(args)
+
+	if namePtr == nil || len(*namePtr) == 0 {
+		log.Error("Name must be specified")
+		return
+	}
+
+	if vcPtr == nil || len(*vcPtr) == 0 {
+		log.Error("VC must be specified")
+		return
+	}
+
+	if noncePtr == nil || len(*noncePtr) == 0 {
+		log.Error("Nonce must be specified")
+		return
+	}
+
+	var vcModel []models.VerifiableCredential
+	err := json.Unmarshal([]byte(*vcPtr), &vcModel)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Decode VC json error")
+		return
+	}
+
+	//TODO Decode credential subject
+
+	didDocStr, err := GlobalContext.db.Get([]byte("did"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did document failed")
+		return
+	}
+
+	var didDoc models.DIDDocument
+	json.Unmarshal(didDocStr, &didDoc)
+
+	didKey, err := GlobalContext.db.Get([]byte("key"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did key failed")
+		return
+	}
+	privKey, err := crypto.ToECDSA(didKey)
+	if err != nil {
+		log.Error("Parse did key failed")
+		return
+	}
+
+	vp, err := presentations.CreatePresentation(vcModel, didDoc, privKey, *noncePtr)
+	if err != nil {
+		log.Error("Create vp failed")
+		return
+	}
+
+	vpStr, _ := json.Marshal(vp)
+
+	fmt.Println("VP:")
+	fmt.Println(string(vpStr))
 }
 
 func verifyVPHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("verifyVP", flag.ExitOnError)
+	vpPtr := printArgsFlag.String("vp", "", "vp")
+	printArgsFlag.Parse(args)
 
+	if vpPtr == nil || len(*vpPtr) == 0 {
+		log.Error("VP must be specified")
+		return
+	}
+
+	var vpModel models.VerifiablePresentation
+	err := json.Unmarshal([]byte(*vpPtr), &vpModel)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Decode VP json error")
+		return
+	}
+
+	//TODO Decode credential subject
+
+	ret, err := presentations.VerifyVP(&vpModel)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Verify VP json error")
+		return
+	}
+
+	fmt.Println("Verify vp" + strconv.FormatBool(ret))
 }
 
 func helpHandler(args []string) {
