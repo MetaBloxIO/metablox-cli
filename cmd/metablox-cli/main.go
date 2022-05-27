@@ -18,16 +18,16 @@ import (
 )
 
 const (
-	cliCreateDID   = "createDID"
-	cliListDIDs    = "listDIDs"
-	cliPrintDID    = "printDID"
-	cliRegisterDID = "registerDID"
-	cliResolveDID  = "resolveDID"
-	cliCreateVC    = "createVC"
-	cliVerifyVC    = "verifyVC"
-	cliCreateVP    = "createVP"
-	cliVerifyVP    = "verifyVP"
-	cliHelp        = "help"
+	cliCreateDID    = "createDID"
+	cliListDIDs     = "listDIDs"
+	cliPrintDID     = "printDID"
+	cliRegisterDID  = "registerDID"
+	cliResolveDID   = "resolveDID"
+	cliCreateWiFiVC = "createWiFiVC"
+	cliVerifyVC     = "verifyVC"
+	cliCreateVP     = "createVP"
+	cliVerifyVP     = "verifyVP"
+	cliHelp         = "help"
 )
 
 type valueType int
@@ -56,7 +56,7 @@ var cmdList = []string{
 	cliPrintDID,
 	cliRegisterDID,
 	cliResolveDID,
-	cliCreateVC,
+	cliCreateWiFiVC,
 	cliVerifyVC,
 	cliCreateVP,
 	cliVerifyVP,
@@ -64,16 +64,16 @@ var cmdList = []string{
 }
 
 var cmdHandleMap = map[string]commandHandler{
-	cliCreateDID:   createDIDHandler,
-	cliListDIDs:    listDIDsHandler,
-	cliPrintDID:    printDIDHandler,
-	cliRegisterDID: registerDIDHandler,
-	cliResolveDID:  resolveDIDHandler,
-	cliCreateVC:    createVCHandler,
-	cliVerifyVC:    verifyVCHandler,
-	cliCreateVP:    createVPHandler,
-	cliVerifyVP:    verifyVPHandler,
-	cliHelp:        helpHandler,
+	cliCreateDID:    createDIDHandler,
+	cliListDIDs:     listDIDsHandler,
+	cliPrintDID:     printDIDHandler,
+	cliRegisterDID:  registerDIDHandler,
+	cliResolveDID:   resolveDIDHandler,
+	cliCreateWiFiVC: createWiFiVCHandler,
+	cliVerifyVC:     verifyVCHandler,
+	cliCreateVP:     createVPHandler,
+	cliVerifyVP:     verifyVPHandler,
+	cliHelp:         helpHandler,
 }
 
 var cmdFlagsMap = map[string][]flagPars{
@@ -121,7 +121,7 @@ var cmdFlagsMap = map[string][]flagPars{
 		},
 	},
 
-	cliCreateVC: {
+	cliCreateWiFiVC: {
 		flagPars{
 			name:         "name",
 			defaultValue: "",
@@ -327,7 +327,27 @@ func resolveDIDHandler(args []string) {
 	fmt.Println(string(docJsonBytes))
 }
 
-func createVCHandler(args []string) {
+func createWiFiVCHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("createVC", flag.ExitOnError)
+	namePtr := printArgsFlag.String("name", "", "DID Name")
+	typePtr := printArgsFlag.String("type", "", "Credential Type")
+	subjectsPtr := printArgsFlag.String("subjects", "", "Credential Subjects")
+	printArgsFlag.Parse(args)
+
+	if namePtr == nil || len(*namePtr) == 0 {
+		log.Error("DID Name must be specified")
+		return
+	}
+
+	if typePtr == nil || len(*typePtr) == 0 {
+		log.Error("Credential Type must be specified")
+		return
+	}
+
+	if subjectsPtr == nil || len(*subjectsPtr) == 0 {
+		log.Error("Credential Subjects must be specified")
+		return
+	}
 
 }
 
