@@ -14,6 +14,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"os"
+	"strings"
 )
 
 const (
@@ -296,7 +297,34 @@ func registerDIDHandler(args []string) {
 }
 
 func resolveDIDHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("resolveDID", flag.ExitOnError)
+	didPtr := printArgsFlag.String("did", "", "DID")
+	printArgsFlag.Parse(args)
 
+	if didPtr == nil || len(*didPtr) == 0 {
+		log.Error("An DID must be specified")
+		return
+	}
+
+	didStr := *didPtr
+
+	if strings.HasPrefix(didStr, "did:metablox:") {
+		didStr = didStr[13:]
+	}
+
+	doc, _, err := contract.GetDocument(didStr)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Resolve DID failed")
+		return
+	}
+
+	docJsonBytes, _ := json.Marshal(doc)
+
+	fmt.Println("DID Document")
+	fmt.Println(string(docJsonBytes))
 }
 
 func createVCHandler(args []string) {
