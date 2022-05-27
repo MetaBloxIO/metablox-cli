@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/MetaBloxIO/metablox-foundation-services/contract"
 	"github.com/MetaBloxIO/metablox-foundation-services/did"
 	"github.com/MetaBloxIO/metablox-foundation-services/models"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -261,7 +262,37 @@ func printDIDHandler(args []string) {
 }
 
 func registerDIDHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("printDID", flag.ExitOnError)
+	namePtr := printArgsFlag.String("name", "", "DID Name")
+	printArgsFlag.Parse(args)
 
+	didDocStr, err := GlobalContext.db.Get([]byte("did"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did document failed")
+		return
+	}
+	didKey, err := GlobalContext.db.Get([]byte("key"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did key failed")
+		return
+	}
+	privKey, err := crypto.ToECDSA(didKey)
+	if err != nil {
+		log.Error("Parse did key failed")
+		return
+	}
+
+	var didDoc models.DIDDocument
+	json.Unmarshal(didDocStr, &didDoc)
+
+	err = contract.UploadDocument(&didDoc, didDoc.ID, privKey)
+	if err != nil {
+		log.WithFields(
+			log.Fields{
+				"error": err,
+			}).Error("Upload did failed")
+		return
+	}
 }
 
 func resolveDIDHandler(args []string) {
