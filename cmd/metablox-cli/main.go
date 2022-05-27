@@ -2,13 +2,16 @@ package main
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/MetaBloxIO/metablox-foundation-services/did"
+	"github.com/MetaBloxIO/metablox-foundation-services/models"
 	"github.com/ethereum/go-ethereum/crypto"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 	"os"
 )
 
@@ -185,10 +188,12 @@ var GlobalContext AppContext
 
 func createDIDHandler(args []string) {
 
-	keyPtr := flag.String("key", "", "Private key in hex")
-	namePtr := flag.String("name", "", "DID Name")
+	createArgsFlag := flag.NewFlagSet("createDID", flag.ExitOnError)
 
-	flag.Parse()
+	keyPtr := createArgsFlag.String("key", "", "Private key in hex")
+	namePtr := createArgsFlag.String("name", "", "DID Name")
+
+	createArgsFlag.Parse(args)
 
 	if namePtr == nil || len(*namePtr) == 0 {
 		log.Error("Create DID must have a name")
@@ -212,14 +217,47 @@ func createDIDHandler(args []string) {
 	didDocStr, _ := json.Marshal(didDoc)
 
 	GlobalContext.db.Put([]byte("did"+*namePtr), didDocStr, nil)
+	GlobalContext.db.Put([]byte("key"+*namePtr), privKey.D.Bytes(), nil)
+
+	fmt.Printf("Create DID:%s name:%s  privateKeyHex:%s\n", didDoc.ID, *namePtr, hex.EncodeToString(privKey.D.Bytes()))
 }
 
 func listDIDsHandler(args []string) {
+	iter := GlobalContext.db.NewIterator(&util.Range{Start: []byte("did"), Limit: []byte("die")}, nil)
+	for iter.Next() {
+		key := iter.Key()
+		value := iter.Value()
 
+		didName := string(key)[3:]
+
+		var didDoc models.DIDDocument
+		json.Unmarshal(value, &didDoc)
+
+		fmt.Printf("%s: %s\n", didName, didDoc.ID)
+	}
+	iter.Release()
 }
 
 func printDIDHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("printDID", flag.ExitOnError)
+	namePtr := printArgsFlag.String("name", "", "DID Name")
+	printArgsFlag.Parse(args)
 
+	didDoc, err := GlobalContext.db.Get([]byte("did"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did document failed")
+		return
+	}
+	didKey, err := GlobalContext.db.Get([]byte("key"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did key failed")
+		return
+	}
+
+	fmt.Println("DID Document:")
+	fmt.Println(string(didDoc))
+
+	fmt.Printf("DID key:%s\n", hex.EncodeToString(didKey))
 }
 
 func registerDIDHandler(args []string) {
