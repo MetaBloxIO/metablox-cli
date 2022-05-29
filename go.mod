@@ -3,6 +3,7 @@ module github.com/MetaBloxIO/metablox-cli
 require (
 	github.com/MetaBloxIO/metablox-foundation-services v0.0.0-20220524221542-0578cad783ad
 	github.com/ethereum/go-ethereum v1.10.17
+	github.com/harmony-one/go-sdk v1.2.9
 	github.com/sirupsen/logrus v1.8.1
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 )
@@ -10,6 +11,7 @@ require (
 require (
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.1.3 // indirect
+	github.com/btcsuite/btcutil v1.0.2 // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
@@ -25,7 +27,8 @@ require (
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/pelletier/go-toml v1.8.0 // indirect
-	github.com/rjeczalik/notify v0.9.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/rjeczalik/notify v0.9.2 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/spf13/afero v1.2.2 // indirect
 	github.com/spf13/cast v1.3.1 // indirect

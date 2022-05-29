@@ -14,6 +14,7 @@ import (
 	"github.com/MetaBloxIO/metablox-foundation-services/models"
 	"github.com/MetaBloxIO/metablox-foundation-services/presentations"
 	"github.com/ethereum/go-ethereum/crypto"
+	hmyAddress "github.com/harmony-one/go-sdk/pkg/address"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -305,14 +306,22 @@ func printDIDHandler(args []string) {
 		return
 	}
 
+	privKey, err := crypto.ToECDSA(didKey)
+	if err != nil {
+		log.Error("Parse did key failed")
+		return
+	}
+	address := crypto.PubkeyToAddress(privKey.PublicKey)
+	hmyAddr := hmyAddress.ToBech32(hmyAddress.Parse(address.Hex()))
 	fmt.Println("DID Document:")
 	fmt.Println(string(didDoc))
 
 	fmt.Printf("DID key:%s\n", hex.EncodeToString(didKey))
+	fmt.Printf("hmy Address key:%s\n", hmyAddr)
 }
 
 func registerDIDHandler(args []string) {
-	printArgsFlag := flag.NewFlagSet("printDID", flag.ExitOnError)
+	printArgsFlag := flag.NewFlagSet("registerDID", flag.ExitOnError)
 	namePtr := printArgsFlag.String("name", "", "DID Name")
 	printArgsFlag.Parse(args)
 
@@ -337,7 +346,9 @@ func registerDIDHandler(args []string) {
 
 	contract.Init()
 
-	err = contract.UploadDocument(&didDoc, didDoc.ID, privKey)
+	didStr := didDoc.ID[13:]
+
+	err = contract.UploadDocument(&didDoc, didStr, privKey)
 	if err != nil {
 		log.WithFields(
 			log.Fields{
@@ -419,7 +430,7 @@ func createWiFiVCHandler(args []string) {
 		return
 	}
 
-	createVC(*namePtr, &wifiSubject, models.TypeWifi, *idPtr)
+	createVC(*namePtr, wifiSubject, models.TypeWifi, *idPtr)
 }
 
 func createVC(name string, subject any, subType string, id string) {
@@ -442,6 +453,9 @@ func createVC(name string, subject any, subType string, id string) {
 		log.Error("Parse did key failed")
 		return
 	}
+
+	credentials.IssuerDID = didDoc.ID
+	credentials.IssuerPrivateKey = privKey
 
 	vc, err := credentials.CreateVC(&didDoc)
 	if err != nil {
@@ -516,7 +530,7 @@ func createMiningVCHandler(args []string) {
 		return
 	}
 
-	createVC(*namePtr, &miningSubject, models.TypeMining, *idPtr)
+	createVC(*namePtr, miningSubject, models.TypeMining, *idPtr)
 }
 
 func verifyVCHandler(args []string) {
@@ -539,7 +553,10 @@ func verifyVCHandler(args []string) {
 		return
 	}
 
-	//TODO Decode credential subject
+	patchVCSubjects(&vcModel)
+
+	credentials.IssuerDID = vcModel.Issuer
+	contract.Init()
 
 	ret, err := credentials.VerifyVC(&vcModel)
 	if err != nil {
@@ -586,7 +603,9 @@ func createVPHandler(args []string) {
 		return
 	}
 
-	//TODO Decode credential subject
+	for _, vc := range vcModel {
+		patchVCSubjects(&vc)
+	}
 
 	didDocStr, err := GlobalContext.db.Get([]byte("did"+*namePtr), nil)
 	if err != nil {
@@ -640,7 +659,9 @@ func verifyVPHandler(args []string) {
 		return
 	}
 
-	//TODO Decode credential subject
+	for _, vc := range vpModel.VerifiableCredential {
+		patchVCSubjects(&vc)
+	}
 
 	ret, err := presentations.VerifyVP(&vpModel)
 	if err != nil {
@@ -652,6 +673,19 @@ func verifyVPHandler(args []string) {
 	}
 
 	fmt.Println("Verify vp" + strconv.FormatBool(ret))
+}
+
+func patchVCSubjects(vc *models.VerifiableCredential) {
+	subjectJsonStr, _ := json.Marshal(vc.CredentialSubject)
+	if vc.Type[0] == models.TypeWifi {
+		var wifiSubject models.WifiAccessInfo
+		json.Unmarshal(subjectJsonStr, &wifiSubject)
+		vc.CredentialSubject = wifiSubject
+	} else if vc.Type[0] == models.TypeMining {
+		var miningSubject models.MiningLicenseInfo
+		json.Unmarshal(subjectJsonStr, &miningSubject)
+		vc.CredentialSubject = miningSubject
+	}
 }
 
 func helpHandler(args []string) {
