@@ -335,6 +335,8 @@ func registerDIDHandler(args []string) {
 	var didDoc models.DIDDocument
 	json.Unmarshal(didDocStr, &didDoc)
 
+	contract.Init()
+
 	err = contract.UploadDocument(&didDoc, didDoc.ID, privKey)
 	if err != nil {
 		log.WithFields(
@@ -360,6 +362,8 @@ func resolveDIDHandler(args []string) {
 	if strings.HasPrefix(didStr, "did:metablox:") {
 		didStr = didStr[13:]
 	}
+
+	contract.Init()
 
 	doc, _, err := contract.GetDocument(didStr)
 	if err != nil {
@@ -651,7 +655,22 @@ func verifyVPHandler(args []string) {
 }
 
 func helpHandler(args []string) {
+	if len(args) == 0 {
+		printUsage()
+		return
+	}
 
+	cmdFlag, exist := cmdFlagsMap[args[0]]
+	if exist == false {
+		fmt.Println("Invalid command:", args[0])
+		printUsage()
+		return
+	}
+
+	fmt.Println("Flags:")
+	for _, v := range cmdFlag {
+		fmt.Printf("\t-%s: %s\n", v.name, v.usage)
+	}
 }
 
 func main() {
