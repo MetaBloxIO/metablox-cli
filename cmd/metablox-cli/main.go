@@ -464,7 +464,6 @@ func createVC(name string, subject any, subType string, id string) {
 	}
 
 	vc.Type = append(vc.Type, subType)
-	vc.SubType = subType
 	vc.Description = subType + "Credential"
 	vc.CredentialSubject = subject
 
@@ -567,7 +566,7 @@ func verifyVCHandler(args []string) {
 		return
 	}
 
-	fmt.Println("Verify vc" + strconv.FormatBool(ret))
+	fmt.Println("Verify vc " + strconv.FormatBool(ret))
 }
 
 func createVPHandler(args []string) {
@@ -677,11 +676,11 @@ func verifyVPHandler(args []string) {
 
 func patchVCSubjects(vc *models.VerifiableCredential) {
 	subjectJsonStr, _ := json.Marshal(vc.CredentialSubject)
-	if vc.Type[0] == models.TypeWifi {
+	if vc.Type[1] == models.TypeWifi {
 		var wifiSubject models.WifiAccessInfo
 		json.Unmarshal(subjectJsonStr, &wifiSubject)
 		vc.CredentialSubject = wifiSubject
-	} else if vc.Type[0] == models.TypeMining {
+	} else if vc.Type[1] == models.TypeMining {
 		var miningSubject models.MiningLicenseInfo
 		json.Unmarshal(subjectJsonStr, &miningSubject)
 		vc.CredentialSubject = miningSubject
