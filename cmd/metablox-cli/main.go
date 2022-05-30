@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -24,17 +26,19 @@ import (
 )
 
 const (
-	cliCreateDID      = "createDID"
-	cliListDIDs       = "listDIDs"
-	cliPrintDID       = "printDID"
-	cliRegisterDID    = "registerDID"
-	cliResolveDID     = "resolveDID"
-	cliCreateWiFiVC   = "createWiFiVC"
-	cliCreateMiningVC = "createMiningVC"
-	cliVerifyVC       = "verifyVC"
-	cliCreateVP       = "createVP"
-	cliVerifyVP       = "verifyVP"
-	cliHelp           = "help"
+	cliCreateDID       = "createDID"
+	cliListDIDs        = "listDIDs"
+	cliPrintDID        = "printDID"
+	cliRegisterDID     = "registerDID"
+	cliResolveDID      = "resolveDID"
+	cliCreateWiFiVC    = "createWiFiVC"
+	cliCreateMiningVC  = "createMiningVC"
+	cliVerifyVC        = "verifyVC"
+	cliCreateVP        = "createVP"
+	cliVerifyVP        = "verifyVP"
+	cliNetworkRequest  = "networkRequest"
+	cliNetworkResponse = "networkResponse"
+	cliHelp            = "help"
 )
 
 type valueType int
@@ -58,6 +62,25 @@ type flagPars struct {
 	usage        string
 }
 
+type NetworkConfirmRequest struct {
+	Did           string `json:"did"`
+	Target        string `json:"target"`
+	LastBlockHash string `json:"lastBlockHash"`
+	Quality       string `json:"quality"`
+	PubKey        string `json:"pubKey"`
+	Challenge     string `json:"challenge"`
+	Signature     string `json:"signature"`
+}
+
+type NetworkConfirmResult struct {
+	Did           string `json:"did"`
+	Target        string `json:"target"`
+	LastBlockHash string `json:"lastBlockHash"`
+	PubKey        string `json:"pubKey"`
+	Challenge     string `json:"challenge"`
+	Signature     string `json:"signature"`
+}
+
 //list of commands
 var cmdList = []string{
 	cliCreateDID,
@@ -70,21 +93,25 @@ var cmdList = []string{
 	cliVerifyVC,
 	cliCreateVP,
 	cliVerifyVP,
+	cliNetworkRequest,
+	cliNetworkResponse,
 	cliHelp,
 }
 
 var cmdHandleMap = map[string]commandHandler{
-	cliCreateDID:      createDIDHandler,
-	cliListDIDs:       listDIDsHandler,
-	cliPrintDID:       printDIDHandler,
-	cliRegisterDID:    registerDIDHandler,
-	cliResolveDID:     resolveDIDHandler,
-	cliCreateWiFiVC:   createWiFiVCHandler,
-	cliCreateMiningVC: createMiningVCHandler,
-	cliVerifyVC:       verifyVCHandler,
-	cliCreateVP:       createVPHandler,
-	cliVerifyVP:       verifyVPHandler,
-	cliHelp:           helpHandler,
+	cliCreateDID:       createDIDHandler,
+	cliListDIDs:        listDIDsHandler,
+	cliPrintDID:        printDIDHandler,
+	cliRegisterDID:     registerDIDHandler,
+	cliResolveDID:      resolveDIDHandler,
+	cliCreateWiFiVC:    createWiFiVCHandler,
+	cliCreateMiningVC:  createMiningVCHandler,
+	cliVerifyVC:        verifyVCHandler,
+	cliCreateVP:        createVPHandler,
+	cliVerifyVP:        verifyVPHandler,
+	cliNetworkRequest:  networkRequestHandler,
+	cliNetworkResponse: networkResponseHandler,
+	cliHelp:            helpHandler,
 }
 
 var cmdFlagsMap = map[string][]flagPars{
@@ -221,6 +248,49 @@ var cmdFlagsMap = map[string][]flagPars{
 			usage:        "Presentation Contents",
 		},
 	},
+
+	cliNetworkRequest: {
+		flagPars{
+			name:         "name",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "DID Name",
+		},
+		flagPars{
+			name:         "target",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "target did",
+		},
+		flagPars{
+			name:         "nonce",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "VP Nonce",
+		},
+	},
+
+	cliNetworkResponse: {
+		flagPars{
+			name:         "name",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "DID Name",
+		},
+		flagPars{
+			name:         "target",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "target did",
+		},
+		flagPars{
+			name:         "nonce",
+			defaultValue: "",
+			valueType:    valueTypeString,
+			usage:        "VP Nonce",
+		},
+	},
+
 	cliHelp: {},
 }
 
@@ -676,6 +746,160 @@ func verifyVPHandler(args []string) {
 	}
 
 	fmt.Println("Verify vp " + strconv.FormatBool(ret))
+}
+
+func networkRequestHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("networkRequest", flag.ExitOnError)
+	namePtr := printArgsFlag.String("name", "", "did name")
+	targetPtr := printArgsFlag.String("target", "", "target did")
+	noncePtr := printArgsFlag.String("nonce", "", "nonce")
+	printArgsFlag.Parse(args)
+
+	if namePtr == nil || len(*namePtr) == 0 {
+		log.Error("did name must be specified")
+		return
+	}
+
+	if targetPtr == nil || len(*targetPtr) == 0 {
+		log.Error("target did must be specified")
+		return
+	}
+
+	if noncePtr == nil || len(*noncePtr) == 0 {
+		log.Error("nonce must be specified")
+		return
+	}
+
+	didDocStr, err := GlobalContext.db.Get([]byte("did"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did document failed")
+		return
+	}
+
+	var didDoc models.DIDDocument
+	json.Unmarshal(didDocStr, &didDoc)
+
+	didKey, err := GlobalContext.db.Get([]byte("key"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did key failed")
+		return
+	}
+
+	privKey, err := crypto.ToECDSA(didKey)
+	if err != nil {
+		log.Error("Parse did key failed")
+		return
+	}
+
+	pubKeyBytes := crypto.FromECDSAPub(&privKey.PublicKey)
+	pubkeyStr := base64.StdEncoding.EncodeToString(pubKeyBytes)
+
+	req := NetworkConfirmRequest{
+		Did:           didDoc.ID,
+		Target:        *targetPtr,
+		LastBlockHash: "",
+		Quality:       "100",
+		PubKey:        pubkeyStr,
+		Challenge:     *noncePtr,
+	}
+
+	reqBytes, _ := serializeNetworkReq(&req)
+	hashedData := sha256.Sum256(reqBytes)
+
+	sig, _ := key.CreateJWSSignature(privKey, hashedData[:])
+	req.Signature = sig
+
+	reqStr, _ := json.Marshal(req)
+	fmt.Println("Req:")
+	fmt.Println(string(reqStr))
+}
+
+func networkResponseHandler(args []string) {
+	printArgsFlag := flag.NewFlagSet("networkResponse", flag.ExitOnError)
+	namePtr := printArgsFlag.String("name", "", "did name")
+	targetPtr := printArgsFlag.String("target", "", "target did")
+	noncePtr := printArgsFlag.String("nonce", "", "nonce")
+	printArgsFlag.Parse(args)
+
+	if namePtr == nil || len(*namePtr) == 0 {
+		log.Error("did name must be specified")
+		return
+	}
+
+	if targetPtr == nil || len(*targetPtr) == 0 {
+		log.Error("target did must be specified")
+		return
+	}
+
+	if noncePtr == nil || len(*noncePtr) == 0 {
+		log.Error("nonce must be specified")
+		return
+	}
+
+	didDocStr, err := GlobalContext.db.Get([]byte("did"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did document failed")
+		return
+	}
+
+	var didDoc models.DIDDocument
+	json.Unmarshal(didDocStr, &didDoc)
+
+	didKey, err := GlobalContext.db.Get([]byte("key"+*namePtr), nil)
+	if err != nil {
+		log.Error("Read did key failed")
+		return
+	}
+
+	privKey, err := crypto.ToECDSA(didKey)
+	if err != nil {
+		log.Error("Parse did key failed")
+		return
+	}
+
+	pubKeyBytes := crypto.FromECDSAPub(&privKey.PublicKey)
+	pubkeyStr := base64.StdEncoding.EncodeToString(pubKeyBytes)
+
+	req := NetworkConfirmResult{
+		Did:           didDoc.ID,
+		Target:        *targetPtr,
+		LastBlockHash: "",
+		PubKey:        pubkeyStr,
+		Challenge:     *noncePtr,
+	}
+
+	reqBytes, _ := serializeNetworkResult(&req)
+	hashedData := sha256.Sum256(reqBytes)
+
+	sig, _ := key.CreateJWSSignature(privKey, hashedData[:])
+	req.Signature = sig
+
+	reqStr, _ := json.Marshal(req)
+	fmt.Println("Resp:")
+	fmt.Println(string(reqStr))
+}
+
+func serializeNetworkReq(req *NetworkConfirmRequest) ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.WriteString(req.Did)
+	buffer.WriteString(req.Target)
+	buffer.WriteString(req.LastBlockHash)
+	buffer.WriteString(req.Quality)
+	buffer.WriteString(req.PubKey)
+	buffer.WriteString(req.Challenge)
+
+	return buffer.Bytes(), nil
+}
+
+func serializeNetworkResult(result *NetworkConfirmResult) ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.WriteString(result.Did)
+	buffer.WriteString(result.Target)
+	buffer.WriteString(result.LastBlockHash)
+	buffer.WriteString(result.PubKey)
+	buffer.WriteString(result.Challenge)
+
+	return buffer.Bytes(), nil
 }
 
 func patchVCSubjects(vc *models.VerifiableCredential) {
