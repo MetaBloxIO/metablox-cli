@@ -525,7 +525,7 @@ func createMiningVCHandler(args []string) {
 		log.WithFields(
 			log.Fields{
 				"error": err,
-			}).Error("Decode WifiAccess json error")
+			}).Error("Decode MiningLicense json error")
 		return
 	}
 
@@ -541,6 +541,7 @@ func verifyVCHandler(args []string) {
 		log.Error("VC must be specified")
 		return
 	}
+	fmt.Printf("VC:\n%s\n", *vcPtr)
 
 	var vcModel models.VerifiableCredential
 	err := json.Unmarshal([]byte(*vcPtr), &vcModel)
@@ -602,8 +603,8 @@ func createVPHandler(args []string) {
 		return
 	}
 
-	for _, vc := range vcModel {
-		patchVCSubjects(&vc)
+	for i, _ := range vcModel {
+		patchVCSubjects(&vcModel[i])
 	}
 
 	didDocStr, err := GlobalContext.db.Get([]byte("did"+*namePtr), nil)
@@ -658,9 +659,12 @@ func verifyVPHandler(args []string) {
 		return
 	}
 
-	for _, vc := range vpModel.VerifiableCredential {
-		patchVCSubjects(&vc)
+	for i, _ := range vpModel.VerifiableCredential {
+		patchVCSubjects(&vpModel.VerifiableCredential[i])
 	}
+
+	credentials.IssuerDID = vpModel.VerifiableCredential[0].Issuer
+	contract.Init()
 
 	ret, err := presentations.VerifyVP(&vpModel)
 	if err != nil {
@@ -671,7 +675,7 @@ func verifyVPHandler(args []string) {
 		return
 	}
 
-	fmt.Println("Verify vp" + strconv.FormatBool(ret))
+	fmt.Println("Verify vp " + strconv.FormatBool(ret))
 }
 
 func patchVCSubjects(vc *models.VerifiableCredential) {
