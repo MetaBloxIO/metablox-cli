@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -806,7 +808,7 @@ func networkRequestHandler(args []string) {
 	reqBytes, _ := serializeNetworkReq(&req)
 	hashedData := sha256.Sum256(reqBytes)
 
-	sig, _ := key.CreateJWSSignature(privKey, hashedData[:])
+	sig, _ := limitEcdsaSign(privKey, hashedData[:])
 	req.Signature = sig
 
 	reqStr, _ := json.Marshal(req)
@@ -871,12 +873,42 @@ func networkResponseHandler(args []string) {
 	reqBytes, _ := serializeNetworkResult(&req)
 	hashedData := sha256.Sum256(reqBytes)
 
-	sig, _ := key.CreateJWSSignature(privKey, hashedData[:])
+	sig, _ := limitEcdsaSign(privKey, hashedData[:])
 	req.Signature = sig
 
 	reqStr, _ := json.Marshal(req)
 	fmt.Println("Resp:")
 	fmt.Println(string(reqStr))
+}
+
+func limitEcdsaSign(privKey *ecdsa.PrivateKey, hashedData []byte) (string, error) {
+	r, s, err := ecdsa.Sign(rand.Reader, privKey, hashedData[:])
+	if err != nil {
+		return "", err
+	}
+
+	halfN := new(big.Int).Div(privKey.Curve.Params().N, big.NewInt(2))
+	if s.Cmp(halfN) > 0 {
+		s = new(big.Int).Sub(privKey.Curve.Params().N, s)
+	}
+
+	curveBits := privKey.Curve.Params().BitSize
+	keyBytes := curveBits / 8
+	if curveBits%8 > 0 {
+		keyBytes++
+	}
+
+	rBytes := r.Bytes()
+	rBytesPadded := make([]byte, keyBytes)
+	copy(rBytesPadded[keyBytes-len(rBytes):], rBytes)
+
+	sBytes := s.Bytes()
+	sBytesPadded := make([]byte, keyBytes)
+	copy(sBytesPadded[keyBytes-len(sBytes):], sBytes)
+
+	out := append(rBytesPadded, sBytesPadded...)
+
+	return base64.StdEncoding.EncodeToString(out), nil
 }
 
 func serializeNetworkReq(req *NetworkConfirmRequest) ([]byte, error) {
