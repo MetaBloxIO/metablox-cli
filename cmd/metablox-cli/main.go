@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	hmyAddress "github.com/harmony-one/go-sdk/pkg/address"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"math/big"
@@ -989,6 +990,9 @@ func main() {
 		}).Error("Open database failed")
 		return
 	}
+
+	viper.SetConfigFile("./config.yaml")
+	viper.ReadInConfig()
 
 	GlobalContext = AppContext{db: db}
 
